@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
 
     console.log(`👤 Processing login for: ${email}`); // <--- NEW LOG TO LOOK FOR
 
-    // 3. Save to Supabase
+    // 3. UPSERT user into database (insert or update based on email)
     const sql = `
       INSERT INTO users (email, google_refresh_token)
       VALUES ($1, $2)
@@ -49,13 +49,16 @@ export async function GET(request: NextRequest) {
        await query(sql, [email, refreshToken]);
        console.log(`✅ DATABASE SUCCESS: Saved token for ${email}`); // <--- NEW LOG
     } else {
+       // Even if no refresh token, ensure user exists in database
+       await query(sql, [email, null]);
        console.log(`ℹ️ User ${email} logged in (Existing user, no new token).`);
     }
 
-    return NextResponse.json({ 
-      message: 'Authentication & Database Save Successful!',
-      user: email,
-    });
+    // 4. Redirect to dashboard with email in query parameter
+    const baseUrl = new URL(request.url);
+    const redirectUrl = new URL('/', baseUrl.origin);
+    redirectUrl.searchParams.set('email', email);
+    return NextResponse.redirect(redirectUrl);
 
   } catch (error: any) {
     console.error('❌ Error:', error.message);

@@ -1,28 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { SheetService } from '@/lib/services/courier/sheetService';
-import { MetaFetcher } from '@/lib/services/sentinel/metaFetcher';
+import { RealMetaFetcher } from '@/lib/services/sentinel/realMetaFetcher';
+import { query } from '@/lib/db';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { email, spreadsheetId } = body;
+    const { email, spreadsheetId } = await request.json();
 
     if (!email || !spreadsheetId) return NextResponse.json({ error: 'Missing data' }, { status: 400 });
 
-    // 1. Initialize Services
-    const courier = new SheetService(email);
-    // In the future, we will pass a real Meta Token here. For now, "MOCK_MODE" is fine.
-    const sentinel = new MetaFetcher('MOCK_MODE'); 
+    // 1. Get the REAL Credentials from Database
+    const userResult = await query(
+      'SELECT fb_exchange_token, ad_account_id FROM users WHERE email = $1', 
+      [email]
+    );
 
-    // 2. FETCH: Get the data (Sentinel)
-    const adData = await sentinel.getMockInsights();
+    if (userResult.rows.length === 0) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
 
-    // 3. WRITE: Push to Sheets (Courier)
+    const { fb_exchange_token, ad_account_id } = userResult.rows[0];
+
+    if (!fb_exchange_token || !ad_account_id) {
+      return NextResponse.json({ error: 'Please connect Facebook and select an Ad Account first.' }, { status: 400 });
+    }
+
+    // 2. Initialize the Real Services
+    const sentinel = new RealMetaFetcher(fb_exchange_token, ad_account_id);
+    const courier = new SheetService(email); // Keep using Google Email for Sheet access
+
+    // 3. FETCH: Get Real Data from Meta
+    const adData = await sentinel.getInsights();
+
+    // 4. WRITE: Push to Google Sheet
+    if (adData.length === 0) {
+      return NextResponse.json({ message: 'Sync complete, but no active ads found for today.' });
+    }
+
     const result = await courier.syncDailyStats(spreadsheetId, adData);
 
     return NextResponse.json({ 
       message: result, 
-      data_preview: adData // Show us what was generated in the JSON response too
+      count: adData.length,
+      preview: adData[0] 
     });
 
   } catch (error: any) {
