@@ -4,11 +4,17 @@ export class RealMetaFetcher {
   constructor(private accessToken: string, private adAccountId: string) {}
 
   async getInsights() {
-    // 1. The URL: We ask for Campaign Level data for "Today"
-    const url = `https://graph.facebook.com/v21.0/${this.adAccountId}/insights`;
+    // FIX: Ensure the ID starts with 'act_'
+    const accountId = this.adAccountId.startsWith('act_') 
+      ? this.adAccountId 
+      : `act_${this.adAccountId}`;
+
+    // 1. The URL uses the fixed ID
+    const url = `https://graph.facebook.com/v21.0/${accountId}/insights`;
     
-    // 2. The Fields: What numbers do we want?
-    // 'actions' contains the purchase data needed for ROAS
+    // Debug log to help us trace in Vercel if needed
+    console.log(`Fetching insights for: ${accountId}`);
+
     const params = {
       access_token: this.accessToken,
       level: 'campaign',
@@ -19,18 +25,16 @@ export class RealMetaFetcher {
     try {
       const { data } = await axios.get(url, { params });
       
-      // 3. Transform the raw API data into our clean format
       const cleanData = data.data.map((row: any) => {
         const spend = parseFloat(row.spend || '0');
         
-        // Extract ROAS (it comes in a weird nested format)
         const roasEntry = row.purchase_roas ? row.purchase_roas.find((x: any) => x.action_type === 'omni_purchase') : null;
         const roas = roasEntry ? parseFloat(roasEntry.value).toFixed(2) : '0.00';
 
         return {
           campaign_name: row.campaign_name,
           spend_raw: spend.toFixed(2),
-          spend_tax: (spend * 1.18).toFixed(2), // 🇮🇳 The 18% GST Magic
+          spend_tax: (spend * 1.18).toFixed(2),
           impressions: row.impressions,
           clicks: row.clicks,
           roas: roas
@@ -40,7 +44,14 @@ export class RealMetaFetcher {
       return cleanData;
 
     } catch (error: any) {
-      console.error('Meta API Error:', error.response?.data || error.message);
+      // Improved Error Logging
+      console.error('Meta API Error Details:', error.response?.data || error.message);
+      
+      // If the token is invalid, tell the user
+      if (error.response?.data?.error?.code === 190) {
+        throw new Error('Facebook Session Expired. Please reconnect Step 3.');
+      }
+      
       throw new Error('Failed to fetch ads. Check if the account is active.');
     }
   }
