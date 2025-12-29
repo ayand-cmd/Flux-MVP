@@ -47,6 +47,8 @@ export interface FluxWithUserData extends Flux {
   email: string;
   fb_exchange_token: string;
   google_refresh_token: string;
+  config?: any; // JSONB config object
+  destination_mapping?: any; // JSONB destination mapping object
 }
 
 export const query = (text: string, params?: any[]) => {

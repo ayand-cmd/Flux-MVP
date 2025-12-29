@@ -3,14 +3,23 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { extractSheetId } from '@/lib/utils';
+
+interface Tab {
+  title: string;
+  sheetId: number;
+}
 
 interface FormData {
   name: string;
   sheetUrl: string;
-  template: 'Hourly' | 'Daily' | '';
   adAccountId: string;
   adAccountName: string;
+  granularity: 'Daily' | 'Hourly' | 'Weekly' | '';
+  breakdowns: string[];
+  frequency: 'Daily Update' | 'Hourly Update' | '';
+  analysis_logic: boolean;
+  raw_data_tab: string;
+  analysis_tab: string;
 }
 
 interface AdAccount {
@@ -29,14 +38,23 @@ export default function NewFlux() {
   const [hasFacebookToken, setHasFacebookToken] = useState<boolean | null>(null);
   const [adAccounts, setAdAccounts] = useState<AdAccount[]>([]);
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(false);
+  const [tabs, setTabs] = useState<Tab[]>([]);
+  const [isLoadingTabs, setIsLoadingTabs] = useState(false);
 
   const [formData, setFormData] = useState<FormData>({
     name: '',
     sheetUrl: '',
-    template: '',
     adAccountId: '',
-    adAccountName: ''
+    adAccountName: '',
+    granularity: '',
+    breakdowns: [],
+    frequency: 'Daily Update',
+    analysis_logic: false,
+    raw_data_tab: '',
+    analysis_tab: ''
   });
+
+  const breakdownOptions = ['Age', 'Gender', 'Platform', 'Region'];
 
   // Load user email and form data from localStorage on mount
   useEffect(() => {
@@ -53,9 +71,17 @@ export default function NewFlux() {
       try {
         const parsed = JSON.parse(savedData);
         setFormData(parsed);
-        // Restore step if we have data
-        if (parsed.name && parsed.sheetUrl && parsed.template) {
-          setCurrentStep(2);
+        // Restore step based on data
+        if (parsed.sheetUrl && tabs.length > 0) {
+          if (parsed.adAccountId) {
+            if (parsed.granularity) {
+              setCurrentStep(4);
+            } else {
+              setCurrentStep(3);
+            }
+          } else {
+            setCurrentStep(2);
+          }
         }
       } catch (e) {
         console.error('Error loading saved form data:', e);
@@ -65,7 +91,7 @@ export default function NewFlux() {
 
   // Save form data to localStorage whenever it changes
   useEffect(() => {
-    if (userEmail && formData.name) {
+    if (userEmail) {
       localStorage.setItem('fluxFormData', JSON.stringify(formData));
     }
   }, [formData, userEmail]);
@@ -125,13 +151,40 @@ export default function NewFlux() {
     }
   };
 
-  const handleStep1Next = () => {
-    // Validation
-    if (!formData.name.trim()) {
-      setError('Please enter a name for your flux');
-      return;
-    }
+  const fetchSheetMetadata = async () => {
+    if (!userEmail || !formData.sheetUrl) return;
 
+    setIsLoadingTabs(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/sheets/metadata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: userEmail,
+          sheetUrl: formData.sheetUrl
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setTabs(data.tabs || []);
+        return true;
+      } else {
+        setError(data.error || 'Failed to fetch sheet metadata');
+        return false;
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to fetch sheet metadata');
+      return false;
+    } finally {
+      setIsLoadingTabs(false);
+    }
+  };
+
+  const handleStep1Next = async () => {
+    // Validation
     if (!formData.sheetUrl.trim()) {
       setError('Please enter a Google Sheets URL');
       return;
@@ -146,13 +199,12 @@ export default function NewFlux() {
       return;
     }
 
-    if (!formData.template) {
-      setError('Please select a template type');
-      return;
-    }
-
     setError(null);
-    setCurrentStep(2);
+    const success = await fetchSheetMetadata();
+    
+    if (success) {
+      setCurrentStep(2);
+    }
   };
 
   const handleStep2Next = () => {
@@ -164,9 +216,33 @@ export default function NewFlux() {
     setCurrentStep(3);
   };
 
+  const handleStep3Next = () => {
+    if (!formData.granularity) {
+      setError('Please select a granularity');
+      return;
+    }
+    if (!formData.frequency) {
+      setError('Please select a frequency');
+      return;
+    }
+    setError(null);
+    setCurrentStep(4);
+  };
+
   const handleSubmit = async () => {
     if (!userEmail) {
       router.push('/');
+      return;
+    }
+
+    // Validation
+    if (!formData.raw_data_tab || !formData.analysis_tab) {
+      setError('Please select both Raw Data and Analysis tabs');
+      return;
+    }
+
+    if (formData.raw_data_tab === formData.analysis_tab) {
+      setError('Raw Data and Analysis tabs must be different');
       return;
     }
 
@@ -179,10 +255,19 @@ export default function NewFlux() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: userEmail,
-          name: formData.name,
+          name: formData.name || `Flux ${new Date().toLocaleDateString()}`,
           sheetUrl: formData.sheetUrl,
-          template: formData.template,
-          adAccountId: formData.adAccountId
+          adAccountId: formData.adAccountId,
+          config: {
+            granularity: formData.granularity,
+            breakdowns: formData.breakdowns,
+            frequency: formData.frequency,
+            analysis_logic: formData.analysis_logic
+          },
+          destination_mapping: {
+            raw_data_tab: formData.raw_data_tab,
+            analysis_tab: formData.analysis_tab
+          }
         })
       });
 
@@ -207,8 +292,17 @@ export default function NewFlux() {
     window.location.href = `/api/auth/facebook/login?email=${encodeURIComponent(userEmail)}`;
   };
 
-  const updateFormData = (field: keyof FormData, value: string) => {
+  const updateFormData = (field: keyof FormData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const toggleBreakdown = (breakdown: string) => {
+    setFormData(prev => ({
+      ...prev,
+      breakdowns: prev.breakdowns.includes(breakdown)
+        ? prev.breakdowns.filter(b => b !== breakdown)
+        : [...prev.breakdowns, breakdown]
+    }));
   };
 
   if (!userEmail) {
@@ -238,7 +332,7 @@ export default function NewFlux() {
         {/* Progress Indicator */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
-            {[1, 2, 3].map((step) => (
+            {[1, 2, 3, 4].map((step) => (
               <div key={step} className="flex items-center flex-1">
                 <div
                   className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-all ${
@@ -249,7 +343,7 @@ export default function NewFlux() {
                 >
                   {currentStep > step ? '✓' : step}
                 </div>
-                {step < 3 && (
+                {step < 4 && (
                   <div
                     className={`flex-1 h-1 mx-2 transition-all ${
                       currentStep > step ? 'bg-blue-600' : 'bg-gray-200'
@@ -267,7 +361,10 @@ export default function NewFlux() {
               Source
             </span>
             <span className={currentStep >= 3 ? 'text-blue-600 font-semibold' : ''}>
-              Review
+              Configuration
+            </span>
+            <span className={currentStep >= 4 ? 'text-blue-600 font-semibold' : ''}>
+              Mapping
             </span>
           </div>
         </div>
@@ -282,22 +379,9 @@ export default function NewFlux() {
         {/* Step 1: Destination */}
         {currentStep === 1 && (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">Destination (Google Sheets)</h2>
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">Step 1 of 4: Destination (Google Sheets)</h2>
             
             <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Flux Name
-                </label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => updateFormData('name', e.target.value)}
-                  placeholder="e.g., Q4 Campaign"
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Google Sheets URL
@@ -314,26 +398,12 @@ export default function NewFlux() {
                 </p>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Template Type
-                </label>
-                <select
-                  value={formData.template}
-                  onChange={(e) => updateFormData('template', e.target.value as 'Hourly' | 'Daily')}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">Select a template</option>
-                  <option value="Hourly">Hourly</option>
-                  <option value="Daily">Daily</option>
-                </select>
-              </div>
-
               <button
                 onClick={handleStep1Next}
-                className="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors"
+                disabled={isLoadingTabs}
+                className="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
               >
-                Next
+                {isLoadingTabs ? 'Fetching Sheet Info...' : 'Next'}
               </button>
             </div>
           </div>
@@ -342,7 +412,7 @@ export default function NewFlux() {
         {/* Step 2: Source */}
         {currentStep === 2 && (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">Source (Facebook Ads)</h2>
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">Step 2 of 4: Source (Meta Ads)</h2>
 
             {isLoading && (
               <div className="text-center py-8">
@@ -427,51 +497,184 @@ export default function NewFlux() {
           </div>
         )}
 
-        {/* Step 3: Review & Launch */}
+        {/* Step 3: Configuration */}
         {currentStep === 3 && (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">Review & Launch</h2>
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">Step 3 of 4: Configuration</h2>
 
-            <div className="space-y-6 mb-8">
-              <div className="p-6 bg-gray-50 rounded-lg">
-                <h3 className="font-semibold text-gray-900 mb-4">Flux Details</h3>
-                <dl className="space-y-3">
-                  <div>
-                    <dt className="text-sm font-medium text-gray-500">Name</dt>
-                    <dd className="mt-1 text-sm text-gray-900">{formData.name}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm font-medium text-gray-500">Google Sheet</dt>
-                    <dd className="mt-1 text-sm text-gray-900 break-all">{formData.sheetUrl}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm font-medium text-gray-500">Template</dt>
-                    <dd className="mt-1 text-sm text-gray-900">{formData.template}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm font-medium text-gray-500">Ad Account</dt>
-                    <dd className="mt-1 text-sm text-gray-900">
-                      {formData.adAccountName} ({formData.adAccountId})
-                    </dd>
-                  </div>
-                </dl>
+            <div className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Granularity
+                </label>
+                <select
+                  value={formData.granularity}
+                  onChange={(e) => updateFormData('granularity', e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">Select granularity</option>
+                  <option value="Daily">Daily</option>
+                  <option value="Hourly">Hourly</option>
+                  <option value="Weekly">Weekly</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Breakdowns
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {breakdownOptions.map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => toggleBreakdown(option)}
+                      className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                        formData.breakdowns.includes(option)
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 text-sm text-gray-500">
+                  Select one or more breakdown dimensions
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Frequency
+                </label>
+                <div className="space-y-2">
+                  <label className="flex items-center p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="radio"
+                      name="frequency"
+                      value="Daily Update"
+                      checked={formData.frequency === 'Daily Update'}
+                      onChange={(e) => updateFormData('frequency', e.target.value)}
+                      className="mr-3"
+                    />
+                    <span>Daily Update</span>
+                  </label>
+                  <label className="flex items-center p-3 border border-gray-300 rounded-lg cursor-not-allowed opacity-50 bg-gray-50">
+                    <input
+                      type="radio"
+                      name="frequency"
+                      value="Hourly Update"
+                      disabled
+                      className="mr-3"
+                    />
+                    <span className="flex items-center gap-2">
+                      Hourly Update
+                      <span className="px-2 py-1 text-xs bg-gray-200 text-gray-600 rounded">
+                        Coming Soon
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label className="flex items-center p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={formData.analysis_logic}
+                    onChange={(e) => updateFormData('analysis_logic', e.target.checked)}
+                    className="mr-3"
+                  />
+                  <span className="text-sm font-medium text-gray-700">
+                    Include Performance Analysis
+                  </span>
+                </label>
+              </div>
+
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setCurrentStep(2)}
+                  className="flex-1 py-3 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={handleStep3Next}
+                  disabled={!formData.granularity || !formData.frequency}
+                  className="flex-1 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
               </div>
             </div>
+          </div>
+        )}
 
-            <div className="flex gap-4">
-              <button
-                onClick={() => setCurrentStep(2)}
-                className="flex-1 py-3 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 transition-colors"
-              >
-                Back
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={isLoading}
-                className="flex-1 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-              >
-                {isLoading ? 'Creating...' : 'Create Flux'}
-              </button>
+        {/* Step 4: Mapping */}
+        {currentStep === 4 && (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">Step 4 of 4: Mapping</h2>
+
+            <div className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Raw Data Destination
+                </label>
+                <select
+                  value={formData.raw_data_tab}
+                  onChange={(e) => updateFormData('raw_data_tab', e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">Select a tab</option>
+                  {tabs.map((tab) => (
+                    <option key={tab.sheetId} value={tab.title}>
+                      {tab.title}
+                    </option>
+                  ))}
+                  <option value="__CREATE_NEW_DATA__">Create New "Data" Tab</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Analysis Destination
+                </label>
+                <select
+                  value={formData.analysis_tab}
+                  onChange={(e) => updateFormData('analysis_tab', e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">Select a tab</option>
+                  {tabs.map((tab) => (
+                    <option key={tab.sheetId} value={tab.title}>
+                      {tab.title}
+                    </option>
+                  ))}
+                  <option value="__CREATE_NEW_ANALYSIS__">Create New "Analysis" Tab</option>
+                </select>
+                {formData.raw_data_tab && formData.analysis_tab && formData.raw_data_tab === formData.analysis_tab && (
+                  <p className="mt-2 text-sm text-red-600">
+                    Raw Data and Analysis tabs must be different
+                  </p>
+                )}
+              </div>
+
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setCurrentStep(3)}
+                  className="flex-1 py-3 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={handleSubmit}
+                  disabled={isLoading || !formData.raw_data_tab || !formData.analysis_tab || formData.raw_data_tab === formData.analysis_tab}
+                  className="flex-1 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {isLoading ? 'Creating...' : 'Create Flux'}
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -479,4 +682,3 @@ export default function NewFlux() {
     </div>
   );
 }
-

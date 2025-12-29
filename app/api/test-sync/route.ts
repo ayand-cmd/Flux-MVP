@@ -40,7 +40,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Sync complete, but no active ads found for today.' });
     }
 
-    const result = await courier.syncDailyStats(spreadsheetId, adData);
+    // Use default destination mapping for test sync
+    const destinationMapping = { raw_data_tab: 'Sheet1', analysis_tab: 'Analysis' };
+    const result = await courier.syncData(spreadsheetId, adData, destinationMapping);
 
     return NextResponse.json({ 
       message: result, 

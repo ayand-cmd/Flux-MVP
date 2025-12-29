@@ -8,16 +8,44 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { email, name, sheetUrl, template, adAccountId } = body;
+    const { 
+      email, 
+      name, 
+      sheetUrl, 
+      adAccountId,
+      config,
+      destination_mapping
+    } = body;
 
     // Validation
     if (!email) {
       return NextResponse.json({ error: 'User email required' }, { status: 400 });
     }
 
-    if (!name || !sheetUrl || !template || !adAccountId) {
+    if (!name || !sheetUrl || !adAccountId) {
       return NextResponse.json({ 
-        error: 'Missing required fields: name, sheetUrl, template, adAccountId' 
+        error: 'Missing required fields: name, sheetUrl, adAccountId' 
+      }, { status: 400 });
+    }
+
+    // Validate config
+    if (!config || !config.granularity || !config.frequency) {
+      return NextResponse.json({ 
+        error: 'Missing required config: granularity, frequency' 
+      }, { status: 400 });
+    }
+
+    // Validate destination_mapping
+    if (!destination_mapping || !destination_mapping.raw_data_tab || !destination_mapping.analysis_tab) {
+      return NextResponse.json({ 
+        error: 'Missing required destination_mapping: raw_data_tab, analysis_tab' 
+      }, { status: 400 });
+    }
+
+    // Validate that raw_data_tab and analysis_tab are different
+    if (destination_mapping.raw_data_tab === destination_mapping.analysis_tab) {
+      return NextResponse.json({ 
+        error: 'Raw Data and Analysis tabs must be different' 
       }, { status: 400 });
     }
 
@@ -64,19 +92,41 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Insert new flux
+    // Prepare config JSONB (granularity, breakdowns, frequency, analysis_logic)
+    const configJson = JSON.stringify({
+      granularity: config.granularity,
+      breakdowns: config.breakdowns || [],
+      frequency: config.frequency,
+      analysis_logic: config.analysis_logic || false
+    });
+
+    // Prepare destination_mapping JSONB
+    const destinationMappingJson = JSON.stringify({
+      raw_data_tab: destination_mapping.raw_data_tab,
+      analysis_tab: destination_mapping.analysis_tab
+    });
+
+    // Insert new flux with JSONB config and destination_mapping
     const insertSql = `
-      INSERT INTO fluxes (user_id, name, spreadsheet_id, template_type, ad_account_id)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING id, name, spreadsheet_id, template_type, ad_account_id, created_at
+      INSERT INTO fluxes (
+        user_id, 
+        name, 
+        spreadsheet_id, 
+        ad_account_id,
+        config,
+        destination_mapping
+      )
+      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)
+      RETURNING id, name, spreadsheet_id, ad_account_id, config, destination_mapping, created_at
     `;
 
     const result = await query(insertSql, [
       userId,
       name,
       spreadsheetId,
-      template,
-      adAccountId
+      adAccountId,
+      configJson,
+      destinationMappingJson
     ]);
 
     return NextResponse.json({
