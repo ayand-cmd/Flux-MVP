@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
 
     // 4. Redirect to dashboard with email in query parameter
     const baseUrl = new URL(request.url);
-    const redirectUrl = new URL('/', baseUrl.origin);
+    const redirectUrl = new URL('/dashboard', baseUrl.origin);
     redirectUrl.searchParams.set('email', email);
     return NextResponse.redirect(redirectUrl);
 

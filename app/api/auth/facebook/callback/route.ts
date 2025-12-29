@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
 
     // NEW CODE: Redirect back to the dashboard
     // We attach the email so the frontend knows who is logged in
-    const dashboardUrl = new URL('/', request.url);
+    const dashboardUrl = new URL('/dashboard', request.url);
     dashboardUrl.searchParams.set('email', originalEmail);
     
     return NextResponse.redirect(dashboardUrl);

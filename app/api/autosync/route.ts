@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/lib/db';
+import { query, FluxWithUserData } from '@/lib/db';
 import { SheetService } from '@/lib/services/courier/sheetService';
 import { RealMetaFetcher } from '@/lib/services/sentinel/realMetaFetcher';
 
@@ -15,40 +15,82 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // 2. Fetch Users
+    // 2. Fetch Active Fluxes with User Data
+    // JOIN with users table to get tokens needed for sync operations
     const sql = `
-      SELECT email, fb_exchange_token, ad_account_id, spreadsheet_id 
-      FROM users 
-      WHERE fb_exchange_token IS NOT NULL 
-      AND ad_account_id IS NOT NULL 
-      AND spreadsheet_id IS NOT NULL
+      SELECT 
+        f.id,
+        f.user_id,
+        f.name,
+        f.ad_account_id,
+        f.spreadsheet_id,
+        f.template_type,
+        f.last_synced_at,
+        u.email,
+        u.fb_exchange_token,
+        u.google_refresh_token
+      FROM fluxes f
+      INNER JOIN users u ON f.user_id = u.id
+      WHERE u.fb_exchange_token IS NOT NULL 
+        AND u.google_refresh_token IS NOT NULL
+        AND f.ad_account_id IS NOT NULL 
+        AND f.spreadsheet_id IS NOT NULL
+      ORDER BY f.id
     `;
     
     const result = await query(sql);
-    const users = result.rows;
+    const fluxes: FluxWithUserData[] = result.rows;
     const report = [];
 
-    // 3. Sync Loop
-    for (const user of users) {
+    // 3. Sync Loop - Iterate through each Flux
+    for (const flux of fluxes) {
       try {
-        const sentinel = new RealMetaFetcher(user.fb_exchange_token, user.ad_account_id);
-        const courier = new SheetService(user.email);
+        const sentinel = new RealMetaFetcher(flux.fb_exchange_token, flux.ad_account_id);
+        const courier = new SheetService(flux.email);
         
         const adData = await sentinel.getInsights();
         
         if (adData.length > 0) {
-          await courier.syncDailyStats(user.spreadsheet_id, adData);
-          report.push({ user: user.email, status: 'Success', count: adData.length });
+          await courier.syncDailyStats(flux.spreadsheet_id, adData);
+          
+          // Update last_synced_at on successful sync
+          await query(
+            'UPDATE fluxes SET last_synced_at = NOW() WHERE id = $1',
+            [flux.id]
+          );
+          
+          report.push({ 
+            flux_id: flux.id,
+            flux_name: flux.name,
+            user: flux.email, 
+            status: 'Success', 
+            count: adData.length 
+          });
         } else {
-          report.push({ user: user.email, status: 'Skipped (No Ads)' });
+          report.push({ 
+            flux_id: flux.id,
+            flux_name: flux.name,
+            user: flux.email, 
+            status: 'Skipped (No Ads)' 
+          });
         }
       } catch (err: any) {
-        console.error(`Sync error for ${user.email}:`, err.message);
-        report.push({ user: user.email, status: 'Failed', error: err.message });
+        console.error(`Sync error for Flux ${flux.id} (${flux.name}):`, err.message);
+        report.push({ 
+          flux_id: flux.id,
+          flux_name: flux.name,
+          user: flux.email, 
+          status: 'Failed', 
+          error: err.message 
+        });
       }
     }
 
-    return NextResponse.json({ message: 'Cron Job Complete', results: report });
+    return NextResponse.json({ 
+      message: 'Cron Job Complete', 
+      results: report,
+      total_fluxes: fluxes.length
+    });
 
   } catch (error: any) {
     console.error('Master Cron Error:', error);
