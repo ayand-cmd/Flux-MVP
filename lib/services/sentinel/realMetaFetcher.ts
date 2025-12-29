@@ -4,16 +4,12 @@ export class RealMetaFetcher {
   constructor(private accessToken: string, private adAccountId: string) {}
 
   async getInsights() {
-    // FIX: Ensure the ID starts with 'act_'
+    // 1. FIX: Ensure the ID starts with 'act_'
     const accountId = this.adAccountId.startsWith('act_') 
       ? this.adAccountId 
       : `act_${this.adAccountId}`;
 
-    // 1. The URL uses the fixed ID
     const url = `https://graph.facebook.com/v21.0/${accountId}/insights`;
-    
-    // Debug log to help us trace in Vercel if needed
-    console.log(`Fetching insights for: ${accountId}`);
 
     const params = {
       access_token: this.accessToken,
@@ -23,31 +19,34 @@ export class RealMetaFetcher {
     };
 
     try {
+      console.log(`Fetching insights for: ${accountId}`);
       const { data } = await axios.get(url, { params });
       
       const cleanData = data.data.map((row: any) => {
         const spend = parseFloat(row.spend || '0');
         
+        // ROAS Logic
         const roasEntry = row.purchase_roas ? row.purchase_roas.find((x: any) => x.action_type === 'omni_purchase') : null;
-        const roas = roasEntry ? parseFloat(roasEntry.value).toFixed(2) : '0.00';
+        const roasVal = roasEntry ? row.purchase_roas[0].value : '0';
 
         return {
           campaign_name: row.campaign_name,
-          spend_raw: spend.toFixed(2),
-          spend_tax: (spend * 1.18).toFixed(2),
-          impressions: row.impressions,
-          clicks: row.clicks,
-          roas: roas
+          
+          // 2. FIX: Convert Strings to Numbers using parseFloat()
+          // This prevents "toFixed is not a function" errors
+          spend_raw: parseFloat(spend.toFixed(2)), 
+          spend_tax: parseFloat((spend * 1.18).toFixed(2)), 
+          impressions: parseInt(row.impressions || '0'),
+          clicks: parseInt(row.clicks || '0'),
+          roas: parseFloat(parseFloat(roasVal).toFixed(2))
         };
       });
 
       return cleanData;
 
     } catch (error: any) {
-      // Improved Error Logging
       console.error('Meta API Error Details:', error.response?.data || error.message);
       
-      // If the token is invalid, tell the user
       if (error.response?.data?.error?.code === 190) {
         throw new Error('Facebook Session Expired. Please reconnect Step 3.');
       }
