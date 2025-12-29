@@ -6,3 +6,4 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+// Force Vercel to rebuild: v1 (Add this line)
