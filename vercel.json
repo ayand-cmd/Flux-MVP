@@ -1,8 +1,10 @@
 {
-    "crons": [
-      {
-        "path": "/api/autosync",
-        "schedule": "0 0 * * *"
-      }
-    ]
-  }
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "crons": [
+    {
+      "path": "/api/autosync",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}
