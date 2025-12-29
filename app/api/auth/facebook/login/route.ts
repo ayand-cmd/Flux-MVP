@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMetaLoginUrl } from '@/lib/services/connector/metaAuth';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   // 1. Get the user's email from the URL query params
   // Example: /api/auth/facebook/login?email=ayand.slg@gmail.com

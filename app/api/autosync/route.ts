@@ -5,6 +5,7 @@ import { RealMetaFetcher } from '@/lib/services/sentinel/realMetaFetcher';
 
 // Force dynamic prevents caching issues
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
   // 1. Security Check

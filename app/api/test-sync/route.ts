@@ -3,6 +3,9 @@ import { SheetService } from '@/lib/services/courier/sheetService';
 import { RealMetaFetcher } from '@/lib/services/sentinel/realMetaFetcher';
 import { query } from '@/lib/db';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const { email, spreadsheetId } = await request.json();

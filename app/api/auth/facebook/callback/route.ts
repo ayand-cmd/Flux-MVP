@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { exchangeMetaCodeForToken, getMetaUserDetails } from '@/lib/services/connector/metaAuth';
 import { query } from '@/lib/db';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get('code');
