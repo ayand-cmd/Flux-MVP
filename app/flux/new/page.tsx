@@ -2,18 +2,17 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { 
+  ArrowRight, Check, AlertCircle, FileSpreadsheet, 
+  Facebook, ChevronLeft, LayoutGrid, Database, BarChart3 
+} from 'lucide-react';
 import Link from 'next/link';
 
-interface Tab {
-  title: string;
-  sheetId: number;
-}
-
+// --- Types ---
 interface FormData {
   name: string;
   sheetUrl: string;
   adAccountId: string;
-  adAccountName: string;
   granularity: 'Daily' | 'Hourly' | 'Weekly' | '';
   breakdowns: string[];
   frequency: 'Daily Update' | 'Hourly Update' | '';
@@ -22,31 +21,26 @@ interface FormData {
   analysis_tab: string;
 }
 
-interface AdAccount {
-  account_id: string;
-  name: string;
-  currency: string;
-  account_status: number;
-}
+interface AdAccount { account_id: string; name: string; currency: string; account_status: number; }
+interface Tab { title: string; sheetId: number; }
 
 export default function NewFlux() {
   const router = useRouter();
-  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Data State
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [hasFacebookToken, setHasFacebookToken] = useState<boolean | null>(null);
   const [adAccounts, setAdAccounts] = useState<AdAccount[]>([]);
-  const [isLoadingAccounts, setIsLoadingAccounts] = useState(false);
   const [tabs, setTabs] = useState<Tab[]>([]);
-  const [isLoadingTabs, setIsLoadingTabs] = useState(false);
 
   const [formData, setFormData] = useState<FormData>({
     name: '',
     sheetUrl: '',
     adAccountId: '',
-    adAccountName: '',
-    granularity: '',
+    granularity: 'Daily',
     breakdowns: [],
     frequency: 'Daily Update',
     analysis_logic: false,
@@ -54,208 +48,73 @@ export default function NewFlux() {
     analysis_tab: ''
   });
 
-  const breakdownOptions = ['Age', 'Gender', 'Platform', 'Region'];
-
-  // Load user email and form data from localStorage on mount
+  // --- Logic Integration ---
   useEffect(() => {
     const email = localStorage.getItem('userEmail');
-    if (!email) {
-      router.push('/');
-      return;
-    }
+    if (!email) { router.push('/'); return; }
     setUserEmail(email);
-
-    // Load saved form data
-    const savedData = localStorage.getItem('fluxFormData');
-    if (savedData) {
-      try {
-        const parsed = JSON.parse(savedData);
-        setFormData(parsed);
-        // Restore step based on data
-        if (parsed.sheetUrl && tabs.length > 0) {
-          if (parsed.adAccountId) {
-            if (parsed.granularity) {
-              setCurrentStep(4);
-            } else {
-              setCurrentStep(3);
-            }
-          } else {
-            setCurrentStep(2);
-          }
-        }
-      } catch (e) {
-        console.error('Error loading saved form data:', e);
-      }
-    }
   }, [router]);
 
-  // Save form data to localStorage whenever it changes
   useEffect(() => {
-    if (userEmail) {
-      localStorage.setItem('fluxFormData', JSON.stringify(formData));
-    }
-  }, [formData, userEmail]);
+    if (currentStep === 2 && userEmail && hasFacebookToken === null) checkFacebookAuth();
+  }, [currentStep, userEmail]);
 
-  // Check Facebook auth status when moving to step 2
   useEffect(() => {
-    if (currentStep === 2 && userEmail && hasFacebookToken === null) {
-      checkFacebookAuth();
-    }
-  }, [currentStep, userEmail, hasFacebookToken]);
-
-  // Fetch ad accounts when Facebook is connected
-  useEffect(() => {
-    if (currentStep === 2 && hasFacebookToken === true && adAccounts.length === 0) {
-      fetchAdAccounts();
-    }
+    if (currentStep === 2 && hasFacebookToken === true && adAccounts.length === 0) fetchAdAccounts();
   }, [currentStep, hasFacebookToken]);
 
   const checkFacebookAuth = async () => {
     if (!userEmail) return;
-
     setIsLoading(true);
     try {
       const res = await fetch(`/api/user/check-auth?email=${encodeURIComponent(userEmail)}`);
       const data = await res.json();
-
-      if (res.ok) {
-        setHasFacebookToken(data.hasFacebookToken);
-      } else {
-        setError(data.error || 'Failed to check authentication');
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to check authentication');
-    } finally {
-      setIsLoading(false);
-    }
+      setHasFacebookToken(res.ok ? data.hasFacebookToken : false);
+    } catch (err) { setError('Auth check failed'); } 
+    finally { setIsLoading(false); }
   };
 
   const fetchAdAccounts = async () => {
     if (!userEmail) return;
-
-    setIsLoadingAccounts(true);
-    setError(null);
     try {
       const res = await fetch(`/api/facebook/accounts?email=${encodeURIComponent(userEmail)}`);
       const data = await res.json();
-
-      if (res.ok) {
-        setAdAccounts(data.accounts || []);
-      } else {
-        setError(data.error || 'Failed to fetch ad accounts');
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch ad accounts');
-    } finally {
-      setIsLoadingAccounts(false);
-    }
+      if (res.ok) setAdAccounts(data.accounts || []);
+    } catch (err) { setError('Failed to fetch accounts'); }
   };
 
-  const fetchSheetMetadata = async () => {
-    if (!userEmail || !formData.sheetUrl) return;
-
-    setIsLoadingTabs(true);
-    setError(null);
+  const handleStep1Next = async () => {
+    if (!formData.name) return setError('Please name your flux');
+    if (!formData.sheetUrl.includes('docs.google.com/spreadsheets')) return setError('Invalid Google Sheet URL');
+    
+    setIsLoading(true);
     try {
       const res = await fetch('/api/sheets/metadata', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: userEmail,
-          sheetUrl: formData.sheetUrl
-        })
+        body: JSON.stringify({ email: userEmail, sheetUrl: formData.sheetUrl })
       });
-
       const data = await res.json();
-
       if (res.ok) {
         setTabs(data.tabs || []);
-        return true;
+        setError(null);
+        setCurrentStep(2);
       } else {
-        setError(data.error || 'Failed to fetch sheet metadata');
-        return false;
+        setError(data.error || 'Failed to access sheet. Make sure the sheet is public or shared with the service account.');
       }
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch sheet metadata');
-      return false;
-    } finally {
-      setIsLoadingTabs(false);
-    }
-  };
-
-  const handleStep1Next = async () => {
-    // Validation
-    if (!formData.sheetUrl.trim()) {
-      setError('Please enter a Google Sheets URL');
-      return;
-    }
-
-    // Validate Google Sheets URL
-    const isValidUrl = formData.sheetUrl.includes('docs.google.com/spreadsheets') ||
-                       formData.sheetUrl.includes('/spreadsheets/d/');
-    
-    if (!isValidUrl) {
-      setError('Please enter a valid Google Sheets URL');
-      return;
-    }
-
-    setError(null);
-    const success = await fetchSheetMetadata();
-    
-    if (success) {
-      setCurrentStep(2);
-    }
-  };
-
-  const handleStep2Next = () => {
-    if (!formData.adAccountId) {
-      setError('Please select an ad account');
-      return;
-    }
-    setError(null);
-    setCurrentStep(3);
-  };
-
-  const handleStep3Next = () => {
-    if (!formData.granularity) {
-      setError('Please select a granularity');
-      return;
-    }
-    if (!formData.frequency) {
-      setError('Please select a frequency');
-      return;
-    }
-    setError(null);
-    setCurrentStep(4);
+    } catch (err) { setError('Failed to access sheet'); }
+    finally { setIsLoading(false); }
   };
 
   const handleSubmit = async () => {
-    if (!userEmail) {
-      router.push('/');
-      return;
-    }
-
-    // Validation
-    if (!formData.raw_data_tab || !formData.analysis_tab) {
-      setError('Please select both Raw Data and Analysis tabs');
-      return;
-    }
-
-    if (formData.raw_data_tab === formData.analysis_tab) {
-      setError('Raw Data and Analysis tabs must be different');
-      return;
-    }
-
     setIsLoading(true);
-    setError(null);
-
     try {
       const res = await fetch('/api/fluxes/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: userEmail,
-          name: formData.name || `Flux ${new Date().toLocaleDateString()}`,
+          name: formData.name,
           sheetUrl: formData.sheetUrl,
           adAccountId: formData.adAccountId,
           config: {
@@ -271,414 +130,266 @@ export default function NewFlux() {
         })
       });
 
-      const data = await res.json();
-
-      if (res.ok) {
-        // Clear localStorage and redirect
-        localStorage.removeItem('fluxFormData');
-        router.push('/dashboard');
-      } else {
-        setError(data.error || 'Failed to create flux');
+      if (res.ok) router.push('/dashboard');
+      else {
+        const data = await res.json();
+        setError(data.error);
       }
-    } catch (err: any) {
-      setError(err.message || 'Failed to create flux');
-    } finally {
-      setIsLoading(false);
-    }
+    } catch (err) { setError('Failed to create flux'); }
+    finally { setIsLoading(false); }
   };
 
-  const handleConnectFacebook = () => {
-    if (!userEmail) return;
-    window.location.href = `/api/auth/facebook/login?email=${encodeURIComponent(userEmail)}`;
-  };
-
-  const updateFormData = (field: keyof FormData, value: any) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const toggleBreakdown = (breakdown: string) => {
-    setFormData(prev => ({
-      ...prev,
-      breakdowns: prev.breakdowns.includes(breakdown)
-        ? prev.breakdowns.filter(b => b !== breakdown)
-        : [...prev.breakdowns, breakdown]
-    }));
-  };
-
-  if (!userEmail) {
-    return null; // Will redirect
-  }
+  // --- Helper Components ---
+  const StepIndicator = () => (
+    <div className="flex items-center justify-between mb-8 px-2">
+      {[
+        { n: 1, label: "Destination" },
+        { n: 2, label: "Source" },
+        { n: 3, label: "Config" },
+        { n: 4, label: "Mapping" }
+      ].map((step, i) => (
+        <div key={step.n} className="flex flex-col items-center relative z-10">
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 ${
+            currentStep >= step.n ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-gray-100 text-gray-400'
+          }`}>
+            {currentStep > step.n ? <Check className="w-4 h-4" /> : step.n}
+          </div>
+          <span className={`text-xs mt-2 font-medium ${currentStep >= step.n ? 'text-indigo-600' : 'text-gray-400'}`}>
+            {step.label}
+          </span>
+        </div>
+      ))}
+      {/* Progress Bar Line */}
+      <div className="absolute top-4 left-0 w-full h-[2px] bg-gray-100 -z-0">
+        <div 
+          className="h-full bg-indigo-600 transition-all duration-500"
+          style={{ width: `${((currentStep - 1) / 3) * 100}%` }}
+        />
+      </div>
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <Link href="/dashboard" className="text-2xl font-bold text-blue-600">
-              Flux
-            </Link>
-            <Link
-              href="/dashboard"
-              className="text-sm text-gray-600 hover:text-gray-900"
-            >
-              Cancel
-            </Link>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6 font-sans">
+      
+      {/* Top Navigation */}
+      <div className="absolute top-8 left-8">
+        <Link href="/dashboard" className="flex items-center gap-2 text-gray-500 hover:text-gray-900 transition-colors font-medium">
+          <ChevronLeft className="w-4 h-4" /> Back to Dashboard
+        </Link>
+      </div>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Progress Indicator */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            {[1, 2, 3, 4].map((step) => (
-              <div key={step} className="flex items-center flex-1">
-                <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-all ${
-                    currentStep >= step
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-200 text-gray-500'
-                  }`}
-                >
-                  {currentStep > step ? '✓' : step}
-                </div>
-                {step < 4 && (
-                  <div
-                    className={`flex-1 h-1 mx-2 transition-all ${
-                      currentStep > step ? 'bg-blue-600' : 'bg-gray-200'
-                    }`}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-          <div className="flex justify-between text-xs text-gray-500">
-            <span className={currentStep >= 1 ? 'text-blue-600 font-semibold' : ''}>
-              Destination
-            </span>
-            <span className={currentStep >= 2 ? 'text-blue-600 font-semibold' : ''}>
-              Source
-            </span>
-            <span className={currentStep >= 3 ? 'text-blue-600 font-semibold' : ''}>
-              Configuration
-            </span>
-            <span className={currentStep >= 4 ? 'text-blue-600 font-semibold' : ''}>
-              Mapping
-            </span>
-          </div>
+      <div className="max-w-xl w-full">
+        <div className="mb-8 text-center">
+          <h1 className="text-3xl font-bold text-gray-900">Configure Flux</h1>
+          <p className="text-gray-500 mt-2">Connect your data sources in 4 simple steps.</p>
         </div>
 
-        {/* Error Message */}
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
-            {error}
-          </div>
-        )}
-
-        {/* Step 1: Destination */}
-        {currentStep === 1 && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">Step 1 of 4: Destination (Google Sheets)</h2>
-            
-            <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Google Sheets URL
-                </label>
-                <input
-                  type="url"
-                  value={formData.sheetUrl}
-                  onChange={(e) => updateFormData('sheetUrl', e.target.value)}
-                  placeholder="https://docs.google.com/spreadsheets/d/..."
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-                <p className="mt-2 text-sm text-gray-500">
-                  Paste the full URL of your Google Sheet
-                </p>
-              </div>
-
-              <button
-                onClick={handleStep1Next}
-                disabled={isLoadingTabs}
-                className="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-              >
-                {isLoadingTabs ? 'Fetching Sheet Info...' : 'Next'}
-              </button>
+        <div className="bg-white rounded-2xl shadow-xl shadow-gray-200/50 border border-gray-100 overflow-hidden relative">
+          
+          <div className="p-8">
+            <div className="relative mb-8">
+               <StepIndicator />
             </div>
-          </div>
-        )}
 
-        {/* Step 2: Source */}
-        {currentStep === 2 && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">Step 2 of 4: Source (Meta Ads)</h2>
-
-            {isLoading && (
-              <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                <p className="mt-4 text-gray-600">Checking authentication...</p>
+            {error && (
+              <div className="mb-6 p-4 bg-red-50 text-red-700 text-sm rounded-xl flex items-start gap-3 border border-red-100">
+                <AlertCircle className="w-5 h-5 shrink-0" />
+                <p>{error}</p>
               </div>
             )}
 
-            {!isLoading && hasFacebookToken === false && (
-              <div className="space-y-6">
-                <div className="p-6 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <p className="text-yellow-800 mb-4">
-                    You need to connect your Facebook account to sync ad data.
-                  </p>
-                  <button
-                    onClick={handleConnectFacebook}
-                    className="px-6 py-3 bg-[#1877F2] text-white font-semibold rounded-lg hover:bg-[#166FE5] transition-colors"
-                  >
-                    Connect Facebook
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {!isLoading && hasFacebookToken === true && (
-              <div className="space-y-6">
-                {isLoadingAccounts ? (
-                  <div className="text-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                    <p className="mt-4 text-gray-600">Loading ad accounts...</p>
+            <div className="min-h-[300px]">
+              {/* STEP 1: DESTINATION */}
+              {currentStep === 1 && (
+                <div className="space-y-5 animate-in fade-in slide-in-from-right-8 duration-300">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Flux Name</label>
+                    <input 
+                      type="text" 
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all outline-none text-gray-900 placeholder:text-gray-400"
+                      placeholder="e.g. Q4 Marketing Report"
+                      value={formData.name}
+                      onChange={(e) => setFormData({...formData, name: e.target.value})}
+                      autoFocus
+                    />
                   </div>
-                ) : (
-                  <>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Google Sheets URL</label>
+                    <div className="relative">
+                      <FileSpreadsheet className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
+                      <input 
+                        type="url" 
+                        className="w-full pl-12 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all outline-none text-gray-900 placeholder:text-gray-400"
+                        placeholder="https://docs.google.com/spreadsheets/d/..."
+                        value={formData.sheetUrl}
+                        onChange={(e) => setFormData({...formData, sheetUrl: e.target.value})}
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
+                      <LayoutGrid className="w-3 h-3" />
+                      Must be accessible by the service account.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 2: SOURCE */}
+              {currentStep === 2 && (
+                <div className="space-y-6 animate-in fade-in slide-in-from-right-8 duration-300">
+                  <div className="p-5 border border-indigo-100 bg-indigo-50/50 rounded-xl flex items-center gap-3">
+                    <div className="w-10 h-10 bg-[#1877F2] rounded-full flex items-center justify-center shrink-0 shadow-sm">
+                      <Facebook className="w-5 h-5 text-white" fill="currentColor" />
+                    </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Select Ad Account
-                      </label>
-                      <select
+                      <h4 className="font-semibold text-gray-900">Meta Ads Source</h4>
+                      <p className="text-sm text-gray-500">Connect your ad account.</p>
+                    </div>
+                  </div>
+
+                  {isLoading ? (
+                    <div className="flex justify-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                    </div>
+                  ) : !hasFacebookToken ? (
+                    <div className="text-center py-8">
+                      <p className="text-gray-600 mb-6">Authorization required to fetch ad accounts.</p>
+                      <a href={`/api/auth/facebook/login?email=${encodeURIComponent(userEmail || '')}`}
+                         className="inline-flex items-center gap-2 px-6 py-3 bg-[#1877F2] text-white font-medium rounded-xl hover:bg-[#166FE5] transition-colors shadow-lg shadow-blue-200">
+                        Connect with Facebook
+                      </a>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Select Ad Account</label>
+                      <select 
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none appearance-none cursor-pointer"
                         value={formData.adAccountId}
-                        onChange={(e) => {
-                          const selected = adAccounts.find(acc => acc.account_id === e.target.value);
-                          updateFormData('adAccountId', e.target.value);
-                          updateFormData('adAccountName', selected?.name || '');
-                        }}
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        onChange={(e) => setFormData({...formData, adAccountId: e.target.value})}
                       >
-                        <option value="">Select an ad account</option>
-                        {adAccounts
-                          .filter(acc => acc.account_status === 1)
-                          .map((account) => (
-                            <option key={account.account_id} value={account.account_id}>
-                              {account.name} ({account.account_id}) - {account.currency}
-                            </option>
-                          ))}
+                        <option value="">Choose an account...</option>
+                        {adAccounts.map(acc => (
+                          <option key={acc.account_id} value={acc.account_id}>{acc.name} ({acc.currency})</option>
+                        ))}
                       </select>
-                      {adAccounts.filter(acc => acc.account_status === 1).length === 0 && (
-                        <p className="mt-2 text-sm text-red-600">
-                          No active ad accounts found. Please check your Facebook Ads account.
-                        </p>
-                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* STEP 3: CONFIG */}
+              {currentStep === 3 && (
+                 <div className="space-y-6 animate-in fade-in slide-in-from-right-8 duration-300">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Time Granularity</label>
+                      <div className="grid grid-cols-2 gap-4">
+                        {['Daily', 'Weekly'].map((opt) => (
+                          <button
+                            key={opt}
+                            onClick={() => setFormData({...formData, granularity: opt as any})}
+                            className={`py-3 px-4 rounded-xl border-2 font-medium transition-all ${
+                              formData.granularity === opt 
+                                ? 'border-indigo-600 bg-indigo-50 text-indigo-700' 
+                                : 'border-gray-200 hover:border-gray-300 text-gray-600'
+                            }`}
+                          >
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
-                    <div className="flex gap-4">
-                      <button
-                        onClick={() => setCurrentStep(1)}
-                        className="flex-1 py-3 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 transition-colors"
-                      >
-                        Back
-                      </button>
-                      <button
-                        onClick={handleStep2Next}
-                        disabled={!formData.adAccountId}
-                        className="flex-1 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-                      >
-                        Next
-                      </button>
+                    <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                           <div className="p-2 bg-white rounded-lg border border-gray-200">
+                             <BarChart3 className="w-5 h-5 text-indigo-600" />
+                           </div>
+                           <div>
+                             <h5 className="font-semibold text-gray-900">Enable AI Analysis</h5>
+                             <p className="text-xs text-gray-500">Automatically generate insights tab.</p>
+                           </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input type="checkbox" className="sr-only peer" checked={formData.analysis_logic} onChange={(e) => setFormData({...formData, analysis_logic: e.target.checked})} />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                        </label>
+                      </div>
                     </div>
-                  </>
-                )}
-              </div>
+                 </div>
+              )}
+
+              {/* STEP 4: MAPPING */}
+              {currentStep === 4 && (
+                <div className="space-y-6 animate-in fade-in slide-in-from-right-8 duration-300">
+                   <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        <Database className="w-4 h-4 inline mr-2 text-gray-400" />
+                        Raw Data Destination
+                      </label>
+                      <select 
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                        value={formData.raw_data_tab}
+                        onChange={(e) => setFormData({...formData, raw_data_tab: e.target.value})}
+                      >
+                        <option value="">Select a sheet tab...</option>
+                        {tabs.map(t => <option key={t.sheetId} value={t.title}>{t.title}</option>)}
+                        <option value="__CREATE_NEW_DATA__" className="font-bold">+ Create New Tab</option>
+                      </select>
+                   </div>
+                   
+                   {formData.analysis_logic && (
+                     <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">
+                          <BarChart3 className="w-4 h-4 inline mr-2 text-gray-400" />
+                          Analysis Destination
+                        </label>
+                        <select 
+                          className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                          value={formData.analysis_tab}
+                          onChange={(e) => setFormData({...formData, analysis_tab: e.target.value})}
+                        >
+                          <option value="">Select a sheet tab...</option>
+                          {tabs.map(t => <option key={t.sheetId} value={t.title}>{t.title}</option>)}
+                          <option value="__CREATE_NEW_ANALYSIS__" className="font-bold">+ Create New Tab</option>
+                        </select>
+                     </div>
+                   )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Footer Navigation */}
+          <div className="p-6 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+            {currentStep > 1 ? (
+              <button 
+                onClick={() => setCurrentStep(c => c - 1)}
+                className="px-6 py-2.5 text-gray-600 font-medium hover:text-gray-900 transition-colors"
+              >
+                Back
+              </button>
+            ) : (
+              <div></div>
             )}
+
+            <button 
+              onClick={() => {
+                if (currentStep === 1) handleStep1Next();
+                else if (currentStep === 2) setCurrentStep(3);
+                else if (currentStep === 3) setCurrentStep(4);
+                else handleSubmit();
+              }}
+              disabled={isLoading || (currentStep === 2 && !formData.adAccountId) || (currentStep === 4 && !formData.raw_data_tab)}
+              className="flex items-center gap-2 px-8 py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:shadow-none disabled:cursor-not-allowed"
+            >
+              {isLoading ? 'Processing...' : currentStep === 4 ? 'Launch Flux' : 'Next Step'}
+              {!isLoading && currentStep !== 4 && <ArrowRight className="w-4 h-4" />}
+            </button>
           </div>
-        )}
 
-        {/* Step 3: Configuration */}
-        {currentStep === 3 && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">Step 3 of 4: Configuration</h2>
-
-            <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Granularity
-                </label>
-                <select
-                  value={formData.granularity}
-                  onChange={(e) => updateFormData('granularity', e.target.value)}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">Select granularity</option>
-                  <option value="Daily">Daily</option>
-                  <option value="Hourly">Hourly</option>
-                  <option value="Weekly">Weekly</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Breakdowns
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {breakdownOptions.map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      onClick={() => toggleBreakdown(option)}
-                      className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                        formData.breakdowns.includes(option)
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
-                <p className="mt-2 text-sm text-gray-500">
-                  Select one or more breakdown dimensions
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Frequency
-                </label>
-                <div className="space-y-2">
-                  <label className="flex items-center p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
-                    <input
-                      type="radio"
-                      name="frequency"
-                      value="Daily Update"
-                      checked={formData.frequency === 'Daily Update'}
-                      onChange={(e) => updateFormData('frequency', e.target.value)}
-                      className="mr-3"
-                    />
-                    <span>Daily Update</span>
-                  </label>
-                  <label className="flex items-center p-3 border border-gray-300 rounded-lg cursor-not-allowed opacity-50 bg-gray-50">
-                    <input
-                      type="radio"
-                      name="frequency"
-                      value="Hourly Update"
-                      disabled
-                      className="mr-3"
-                    />
-                    <span className="flex items-center gap-2">
-                      Hourly Update
-                      <span className="px-2 py-1 text-xs bg-gray-200 text-gray-600 rounded">
-                        Coming Soon
-                      </span>
-                    </span>
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <label className="flex items-center p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
-                  <input
-                    type="checkbox"
-                    checked={formData.analysis_logic}
-                    onChange={(e) => updateFormData('analysis_logic', e.target.checked)}
-                    className="mr-3"
-                  />
-                  <span className="text-sm font-medium text-gray-700">
-                    Include Performance Analysis
-                  </span>
-                </label>
-              </div>
-
-              <div className="flex gap-4">
-                <button
-                  onClick={() => setCurrentStep(2)}
-                  className="flex-1 py-3 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 transition-colors"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={handleStep3Next}
-                  disabled={!formData.granularity || !formData.frequency}
-                  className="flex-1 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Step 4: Mapping */}
-        {currentStep === 4 && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">Step 4 of 4: Mapping</h2>
-
-            <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Raw Data Destination
-                </label>
-                <select
-                  value={formData.raw_data_tab}
-                  onChange={(e) => updateFormData('raw_data_tab', e.target.value)}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">Select a tab</option>
-                  {tabs.map((tab) => (
-                    <option key={tab.sheetId} value={tab.title}>
-                      {tab.title}
-                    </option>
-                  ))}
-                  <option value="__CREATE_NEW_DATA__">Create New "Data" Tab</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Analysis Destination
-                </label>
-                <select
-                  value={formData.analysis_tab}
-                  onChange={(e) => updateFormData('analysis_tab', e.target.value)}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">Select a tab</option>
-                  {tabs.map((tab) => (
-                    <option key={tab.sheetId} value={tab.title}>
-                      {tab.title}
-                    </option>
-                  ))}
-                  <option value="__CREATE_NEW_ANALYSIS__">Create New "Analysis" Tab</option>
-                </select>
-                {formData.raw_data_tab && formData.analysis_tab && formData.raw_data_tab === formData.analysis_tab && (
-                  <p className="mt-2 text-sm text-red-600">
-                    Raw Data and Analysis tabs must be different
-                  </p>
-                )}
-              </div>
-
-              <div className="flex gap-4">
-                <button
-                  onClick={() => setCurrentStep(3)}
-                  className="flex-1 py-3 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 transition-colors"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={handleSubmit}
-                  disabled={isLoading || !formData.raw_data_tab || !formData.analysis_tab || formData.raw_data_tab === formData.analysis_tab}
-                  className="flex-1 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-                >
-                  {isLoading ? 'Creating...' : 'Create Flux'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
+        </div>
+      </div>
     </div>
   );
 }
