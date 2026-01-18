@@ -69,18 +69,19 @@ export async function GET(request: NextRequest) {
           );
           
           // Update analysis tab if analysis_logic is enabled
-          if (config?.analysis_logic) {
-            try {
-              await courier.updateAnalysisTab(
-                flux.spreadsheet_id,
-                adData,
-                destinationMapping.analysis_tab
-              );
-            } catch (analysisError: any) {
-              console.error(`Analysis update error for Flux ${flux.id}:`, analysisError.message);
-              // Don't fail the whole sync if analysis fails
-            }
-          }
+          // TODO: Implement updateAnalysisTab method in SheetService
+          // if (config?.analysis_logic) {
+          //   try {
+          //     await courier.updateAnalysisTab(
+          //       flux.spreadsheet_id,
+          //       adData,
+          //       destinationMapping.analysis_tab
+          //     );
+          //   } catch (analysisError: any) {
+          //     console.error(`Analysis update error for Flux ${flux.id}:`, analysisError.message);
+          //     // Don't fail the whole sync if analysis fails
+          //   }
+          // }
           
           // Update last_synced_at on successful sync
           await query(

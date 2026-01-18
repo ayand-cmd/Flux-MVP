@@ -19,7 +19,7 @@ export default function LandingPage() {
   }, [router]);
 
   const handleLogin = () => {
-    window.location.href = '/api/auth/google/login'; 
+    router.push('/login');
   };
 
   // Prevent flash of content while checking auth

@@ -33,7 +33,8 @@ export async function POST(request: NextRequest) {
     const courier = new SheetService(email); // Keep using Google Email for Sheet access
 
     // 3. FETCH: Get Real Data from Meta
-    const adData = await sentinel.getInsights();
+    const config = null; // Default config for test sync
+    const adData = await sentinel.getInsights(config);
 
     // 4. WRITE: Push to Google Sheet
     if (adData.length === 0) {
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
 
     // Use default destination mapping for test sync
     const destinationMapping = { raw_data_tab: 'Sheet1', analysis_tab: 'Analysis' };
-    const result = await courier.syncData(spreadsheetId, adData, destinationMapping);
+    const result = await courier.syncData(spreadsheetId, adData, destinationMapping, config);
 
     return NextResponse.json({ 
       message: result, 

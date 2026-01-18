@@ -5,19 +5,19 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  // 1. Get the user's email from the URL query params
-  // Example: /api/auth/facebook/login?email=ayand.slg@gmail.com
-  const searchParams = request.nextUrl.searchParams;
+  const { searchParams } = new URL(request.url);
   const email = searchParams.get('email');
 
-  // 2. Safety Check: If we don't know who is logging in, stop.
   if (!email) {
-    return NextResponse.json({ error: 'User email is required to link accounts.' }, { status: 400 });
+    return NextResponse.json({ error: 'Email parameter required' }, { status: 400 });
   }
 
-  // 3. Generate the Facebook URL with the email embedded in the 'state'
-  const url = getMetaLoginUrl(email);
-  
-  // 4. Send the user to Facebook
-  return NextResponse.redirect(url);
+  try {
+    const loginUrl = getMetaLoginUrl(email);
+    return NextResponse.redirect(loginUrl);
+  } catch (error: any) {
+    console.error('❌ Facebook login URL generation error:', error);
+    return NextResponse.json({ error: 'Failed to generate Facebook login URL' }, { status: 500 });
+  }
 }
+

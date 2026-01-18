@@ -36,17 +36,26 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate destination_mapping
-    if (!destination_mapping || !destination_mapping.raw_data_tab || !destination_mapping.analysis_tab) {
+    if (!destination_mapping || !destination_mapping.raw_data_tab) {
       return NextResponse.json({ 
-        error: 'Missing required destination_mapping: raw_data_tab, analysis_tab' 
+        error: 'Missing required destination_mapping: raw_data_tab' 
       }, { status: 400 });
     }
 
-    // Validate that raw_data_tab and analysis_tab are different
-    if (destination_mapping.raw_data_tab === destination_mapping.analysis_tab) {
-      return NextResponse.json({ 
-        error: 'Raw Data and Analysis tabs must be different' 
-      }, { status: 400 });
+    // If analysis_logic is enabled, analysis_tab is required
+    if (config.analysis_logic) {
+      if (!destination_mapping.analysis_tab) {
+        return NextResponse.json({ 
+          error: 'Missing required destination_mapping: analysis_tab (required when AI Analysis is enabled)' 
+        }, { status: 400 });
+      }
+
+      // Validate that raw_data_tab and analysis_tab are different
+      if (destination_mapping.raw_data_tab === destination_mapping.analysis_tab) {
+        return NextResponse.json({ 
+          error: 'Raw Data and Analysis tabs must be different' 
+        }, { status: 400 });
+      }
     }
 
     // Validate Google Sheets URL format
@@ -68,7 +77,8 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Verify user exists and get their ID
+    // Get PostgreSQL user ID (integer) from users table by email
+    // The fluxes table uses integer user_id referencing users.id, not Supabase auth UUID
     const userResult = await query(
       'SELECT id FROM users WHERE email = $1',
       [email]
@@ -82,8 +92,8 @@ export async function POST(request: NextRequest) {
 
     // Verify user has Facebook token (required for sync)
     const tokenCheck = await query(
-      'SELECT fb_exchange_token FROM users WHERE id = $1',
-      [userId]
+      'SELECT fb_exchange_token FROM users WHERE email = $1',
+      [email]
     );
 
     if (!tokenCheck.rows[0]?.fb_exchange_token) {
@@ -92,21 +102,29 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Prepare config JSONB (granularity, breakdowns, frequency, analysis_logic)
-    const configJson = JSON.stringify({
+    // Prepare config object (granularity, breakdowns, frequency, analysis_logic)
+    const configObject = {
       granularity: config.granularity,
       breakdowns: config.breakdowns || [],
       frequency: config.frequency,
       analysis_logic: config.analysis_logic || false
-    });
+    };
+
+    // Prepare destination_mapping object
+    // Only include analysis_tab if analysis_logic is enabled
+    const destinationMappingObject = {
+      raw_data_tab: destination_mapping.raw_data_tab,
+      ...(config.analysis_logic && { analysis_tab: destination_mapping.analysis_tab })
+    };
 
     // Prepare destination_mapping JSONB
+    // Only include analysis_tab if analysis_logic is enabled
     const destinationMappingJson = JSON.stringify({
       raw_data_tab: destination_mapping.raw_data_tab,
-      analysis_tab: destination_mapping.analysis_tab
+      ...(config.analysis_logic && { analysis_tab: destination_mapping.analysis_tab })
     });
 
-    // Insert new flux with JSONB config and destination_mapping
+    // Insert new flux using PostgreSQL (fluxes table uses integer user_id)
     const insertSql = `
       INSERT INTO fluxes (
         user_id, 
@@ -125,7 +143,7 @@ export async function POST(request: NextRequest) {
       name,
       spreadsheetId,
       adAccountId,
-      configJson,
+      JSON.stringify(configObject),
       destinationMappingJson
     ]);
 

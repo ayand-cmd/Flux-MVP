@@ -7,6 +7,7 @@ import {
   Facebook, ChevronLeft, LayoutGrid, Database, BarChart3 
 } from 'lucide-react';
 import Link from 'next/link';
+import { createClient } from '@/lib/supabase/client';
 
 // --- Types ---
 interface FormData {
@@ -35,6 +36,32 @@ export default function NewFlux() {
   const [hasFacebookToken, setHasFacebookToken] = useState<boolean | null>(null);
   const [adAccounts, setAdAccounts] = useState<AdAccount[]>([]);
   const [tabs, setTabs] = useState<Tab[]>([]);
+  
+  // Handle callback redirects from Facebook OAuth
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const fbConnected = params.get('fb_connected');
+    const oauthError = params.get('error');
+    
+    if (fbConnected === 'true') {
+      // Clear the URL params
+      window.history.replaceState({}, '', '/flux/new');
+      // Refresh the auth check
+      if (userEmail) {
+        setHasFacebookToken(null);
+      }
+    } else if (oauthError) {
+      const errorMessages: Record<string, string> = {
+        'oauth_denied': 'Facebook authorization was denied',
+        'missing_params': 'Missing required OAuth parameters',
+        'invalid_state': 'Invalid OAuth state parameter',
+        'callback_failed': 'Failed to complete Facebook authorization'
+      };
+      setError(errorMessages[oauthError] || 'Facebook authorization failed');
+      // Clear the URL params
+      window.history.replaceState({}, '', '/flux/new');
+    }
+  }, [userEmail]);
 
   const [formData, setFormData] = useState<FormData>({
     name: '',
@@ -49,20 +76,6 @@ export default function NewFlux() {
   });
 
   // --- Logic Integration ---
-  useEffect(() => {
-    const email = localStorage.getItem('userEmail');
-    if (!email) { router.push('/'); return; }
-    setUserEmail(email);
-  }, [router]);
-
-  useEffect(() => {
-    if (currentStep === 2 && userEmail && hasFacebookToken === null) checkFacebookAuth();
-  }, [currentStep, userEmail]);
-
-  useEffect(() => {
-    if (currentStep === 2 && hasFacebookToken === true && adAccounts.length === 0) fetchAdAccounts();
-  }, [currentStep, hasFacebookToken]);
-
   const checkFacebookAuth = async () => {
     if (!userEmail) return;
     setIsLoading(true);
@@ -82,6 +95,36 @@ export default function NewFlux() {
       if (res.ok) setAdAccounts(data.accounts || []);
     } catch (err) { setError('Failed to fetch accounts'); }
   };
+
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      try {
+        const supabase = createClient();
+        const { data: { user }, error } = await supabase.auth.getUser();
+        
+        if (error || !user?.email) {
+          console.error('Failed to get user:', error);
+          router.push('/');
+          return;
+        }
+        
+        setUserEmail(user.email);
+      } catch (err) {
+        console.error('Error fetching user:', err);
+        router.push('/');
+      }
+    };
+    
+    getCurrentUser();
+  }, [router]);
+
+  useEffect(() => {
+    if (currentStep === 2 && userEmail && hasFacebookToken === null) checkFacebookAuth();
+  }, [currentStep, userEmail, hasFacebookToken]);
+
+  useEffect(() => {
+    if (currentStep === 2 && hasFacebookToken === true && adAccounts.length === 0) fetchAdAccounts();
+  }, [currentStep, hasFacebookToken, adAccounts.length]);
 
   const handleStep1Next = async () => {
     if (!formData.name) return setError('Please name your flux');
@@ -125,7 +168,7 @@ export default function NewFlux() {
           },
           destination_mapping: {
             raw_data_tab: formData.raw_data_tab,
-            analysis_tab: formData.analysis_tab
+            ...(formData.analysis_logic && { analysis_tab: formData.analysis_tab })
           }
         })
       });
