@@ -1,5 +1,10 @@
 import { Pool } from 'pg';
 
+// Ensure DATABASE_URL is set
+if (!process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL environment variable is not set. Make sure .env.local file exists and contains DATABASE_URL.');
+}
+
 // Supabase requires SSL. This config ensures we connect securely.
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
