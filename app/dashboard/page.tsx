@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { FluxCard } from '@/components/dashboard/FluxCard';
+import { CreativeTable } from '@/components/creative-table';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
@@ -48,7 +49,7 @@ export default async function DashboardPage() {
           </Link>
         </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
           {fluxes?.map((flux) => (
             <FluxCard key={flux.id} flux={flux} />
           ))}
@@ -60,6 +61,19 @@ export default async function DashboardPage() {
             </div>
           )}
         </div>
+
+        {/* Creative Performance Section */}
+        <section className="mb-10">
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold text-zinc-900 dark:text-white mb-2">
+              Creative Performance
+            </h2>
+            <p className="text-zinc-500 dark:text-zinc-400">
+              View performance metrics across all your creatives.
+            </p>
+          </div>
+          <CreativeTable />
+        </section>
       </div>
     </div>
   );
