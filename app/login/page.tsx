@@ -11,11 +11,20 @@ export default function LoginPage() {
     setIsLoading(true);
     const supabase = createClient();
     
+    // Get the current origin dynamically (works in both dev and production)
+    // Fallback to NEXT_PUBLIC_SITE_URL if window.location.origin is not available (SSR edge case)
+    const origin = 
+      typeof window !== 'undefined' 
+        ? window.location.origin 
+        : process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+    
+    const redirectTo = `${origin}/auth/callback`;
+    
     // We request the scopes needed for your Worker (Sheets & Drive)
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo, // Dynamic redirect URL that works in production
         queryParams: {
           access_type: 'offline', // Forces Google to give us a Refresh Token
           prompt: 'consent',      // Forces the consent screen every time (to ensure we get the token)

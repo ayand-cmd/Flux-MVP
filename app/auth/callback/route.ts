@@ -2,20 +2,14 @@ import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url);
+  const requestUrl = new URL(request.url);
+  const { searchParams } = requestUrl;
   const code = searchParams.get('code');
   const next = searchParams.get('next') ?? '/dashboard';
 
-  // 🔍 DEBUGGING BLOCK (Remove after fixing)
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  console.log("--- DEBUG ENVIRONMENT ---");
-  console.log("URL Exists:", !!supabaseUrl);
-  console.log("Key Exists:", !!supabaseKey);
-  console.log("Key Length:", supabaseKey?.length);
-  console.log("Key Starts With:", supabaseKey?.substring(0, 5));
-  console.log("-------------------------");
+  // Use request URL origin (works in both dev and production)
+  // This ensures we redirect to the same domain that made the request
+  const origin = requestUrl.origin;
 
   if (!code) {
     return NextResponse.redirect(`${origin}/login?error=no_code`);
@@ -25,6 +19,7 @@ export async function GET(request: Request) {
   const { error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (!error) {
+    // Redirect to dashboard using the request origin (not hardcoded localhost)
     return NextResponse.redirect(`${origin}${next}`);
   } else {
     console.error('❌ Supabase Auth Error:', error.message);
